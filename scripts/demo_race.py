@@ -18,7 +18,7 @@ import asyncio
 import sys
 import uuid
 
-from app.limiter import RateLimiter, window_key
+from app.limiters import SlidingWindowLogLimiter
 from app.redis_client import close_client, create_client
 
 CONCURRENCY = 200
@@ -47,22 +47,22 @@ async def naive_check(client, key: str, limit: int, window_ms: int) -> bool:
 async def main() -> int:
     client = create_client()
 
-    naive_key = window_key("race-demo-naive")
+    atomic = SlidingWindowLogLimiter(client)
+    naive_key = atomic.state_key("race-demo-naive")
     await client.delete(naive_key)
     naive_results = await asyncio.gather(
         *(naive_check(client, naive_key, LIMIT, WINDOW_MS) for _ in range(CONCURRENCY))
     )
     naive_allowed = sum(naive_results)
 
-    atomic = RateLimiter(client)
     atomic_id = "race-demo-atomic"
-    await client.delete(window_key(atomic_id))
+    await client.delete(atomic.state_key(atomic_id))
     atomic_results = await asyncio.gather(
         *(atomic.check(atomic_id, LIMIT, WINDOW_MS) for _ in range(CONCURRENCY))
     )
     atomic_allowed = sum(1 for r in atomic_results if r.allowed)
 
-    await client.delete(naive_key, window_key(atomic_id))
+    await client.delete(naive_key, atomic.state_key(atomic_id))
     await close_client()
 
     print(f"{CONCURRENCY} concurrent requests, limit {LIMIT}\n")

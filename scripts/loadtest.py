@@ -26,7 +26,8 @@ from collections import Counter
 import aiohttp
 
 from app.clients import registered_clients
-from app.limiter import window_key
+from app.config import ALGORITHM
+from app.limiters import build_limiter
 from app.metrics import reset as reset_metrics
 from app.redis_client import close_client, create_client
 
@@ -63,9 +64,10 @@ async def main() -> int:
 
     # Start from a clean slate: empty windows and zeroed counters, so the
     # numbers below describe this run only.
+    limiter = build_limiter(ALGORITHM, redis_client)
     tiers = {c.client_id: c.tier for c in registered_clients()}
-    await redis_client.delete(*(window_key(cid) for cid in tiers))
-    await reset_metrics(redis_client)
+    await redis_client.delete(*(limiter.state_key(cid) for cid in tiers))
+    await reset_metrics(limiter)
 
     plan = []
     for api_key, client_id in API_KEYS.items():

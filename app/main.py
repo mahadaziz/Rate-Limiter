@@ -1,7 +1,7 @@
 """FastAPI application entrypoint.
 
 Routes only: they identify the caller, ask the limiter for a decision, and
-turn that decision into HTTP. The decision itself lives in `app.limiter`, and
+turn that decision into HTTP. The decision itself lives in `app.limiters`, and
 who gets what limit lives in `app.clients`.
 """
 
@@ -14,9 +14,9 @@ from redis.exceptions import RedisError
 
 from app import metrics
 from app.clients import Client, lookup
-from app.config import INSTANCE_ID
-from app.limiter import RateLimiter
-from app.redis_client import close_client, create_client, get_client
+from app.config import ALGORITHM, INSTANCE_ID
+from app.limiters import Limiter, build_limiter
+from app.redis_client import close_client, create_client
 
 logging.basicConfig(
     level=logging.INFO,
@@ -28,8 +28,8 @@ logger = logging.getLogger(__name__)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     client = create_client()
-    app.state.limiter = RateLimiter(client)
-    logger.info("instance started")
+    app.state.limiter = build_limiter(ALGORITHM, client)
+    logger.info("instance started using the %s algorithm", ALGORITHM)
     yield
     await close_client()
 
@@ -55,14 +55,14 @@ async def require_client(x_api_key: str | None = Header(default=None)) -> Client
 
 
 @app.get("/health")
-async def health() -> dict:
+async def health(request: Request) -> dict:
     """Report whether this instance can reach Redis.
 
     Always 200: the limiter fails open, so an instance that has lost Redis is
     degraded but still serving. The body says which.
     """
     try:
-        await get_client().ping()
+        await request.app.state.limiter.client.ping()
         redis_state = "up"
         status = "ok"
     except Exception as exc:  # noqa: BLE001 - health check reports, never raises
@@ -70,7 +70,12 @@ async def health() -> dict:
         redis_state = "down"
         status = "degraded"
 
-    return {"status": status, "redis": redis_state, "instance": INSTANCE_ID}
+    return {
+        "status": status,
+        "redis": redis_state,
+        "instance": INSTANCE_ID,
+        "algorithm": ALGORITHM,
+    }
 
 
 @app.get("/metrics")
@@ -82,10 +87,10 @@ async def get_metrics(request: Request):
     The fallback count is the exception: it is per instance, since it counts
     the times this process could not reach Redis to record anything.
     """
-    limiter: RateLimiter = request.app.state.limiter
+    limiter: Limiter = request.app.state.limiter
 
     try:
-        clients = await metrics.collect(get_client())
+        clients = await metrics.collect(limiter)
     except (RedisError, OSError) as exc:
         logger.error("metrics unavailable, redis unreachable: %s", exc)
         return JSONResponse(
@@ -93,12 +98,14 @@ async def get_metrics(request: Request):
             content={
                 "detail": "metrics unavailable, redis unreachable",
                 "instance": INSTANCE_ID,
+                "algorithm": limiter.name,
                 "fallbacks_this_instance": limiter.fallback_count,
             },
         )
 
     return {
         "instance": INSTANCE_ID,
+        "algorithm": limiter.name,
         "fallbacks_this_instance": limiter.fallback_count,
         "clients": clients,
     }
@@ -108,7 +115,7 @@ async def get_metrics(request: Request):
 async def reset_metrics(request: Request):
     """Zero the counters. Convenience for repeated load test runs."""
     try:
-        await metrics.reset(get_client())
+        await metrics.reset(request.app.state.limiter)
     except (RedisError, OSError) as exc:
         logger.error("metrics reset failed, redis unreachable: %s", exc)
         raise HTTPException(status_code=503, detail="redis unreachable") from exc
@@ -129,6 +136,7 @@ async def limited(request: Request, client: Client = Depends(require_client)):
         "X-RateLimit-Limit": str(result.limit),
         "X-RateLimit-Remaining": str(result.remaining),
         "X-RateLimit-Tier": tier.name,
+        "X-RateLimit-Algorithm": request.app.state.limiter.name,
         "X-Instance": INSTANCE_ID,
     }
 

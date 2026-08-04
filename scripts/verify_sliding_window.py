@@ -20,7 +20,7 @@ Run inside the app container:
 import asyncio
 import sys
 
-from app.limiter import RateLimiter, window_key
+from app.limiters import SlidingWindowLogLimiter
 from app.redis_client import close_client, create_client
 
 LIMIT = 6
@@ -35,9 +35,9 @@ async def redis_now_ms(client) -> int:
 
 async def main() -> int:
     client = create_client()
-    limiter = RateLimiter(client)
+    limiter = SlidingWindowLogLimiter(client)
     client_id = "sliding-window-test"
-    key = window_key(client_id)
+    key = limiter.state_key(client_id)
     await client.delete(key)
 
     async def send(n: int) -> int:

@@ -25,18 +25,21 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       INSTANCE_ID: app-1
+      ALGORITHM: ${ALGORITHM:-sliding_window_log}
 
   app-2:
     <<: *app
     environment:
       REDIS_URL: redis://redis:6379/0
       INSTANCE_ID: app-2
+      ALGORITHM: ${ALGORITHM:-sliding_window_log}
 
   app-3:
     <<: *app
     environment:
       REDIS_URL: redis://redis:6379/0
       INSTANCE_ID: app-3
+      ALGORITHM: ${ALGORITHM:-sliding_window_log}
 
   # Not started by `docker compose up`; run it with
   #   docker compose --profile test run --rm tests

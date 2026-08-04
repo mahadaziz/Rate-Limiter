@@ -12,6 +12,18 @@ def test_health_reports_redis_reachable(api):
     assert body["redis"] == "up"
 
 
+def test_health_names_the_active_algorithm(api):
+    assert api.get("/health").json()["algorithm"] in {
+        "sliding_window_log",
+        "token_bucket",
+    }
+
+
+def test_responses_name_the_active_algorithm(api):
+    resp = api.get("/limited", headers={"X-API-Key": FREE_KEY})
+    assert resp.headers["X-RateLimit-Algorithm"] == api.get("/metrics").json()["algorithm"]
+
+
 def test_missing_api_key_is_rejected(api):
     assert api.get("/limited").status_code == 401
 
@@ -82,7 +94,7 @@ def test_metrics_report_allowed_and_denied(api):
     assert acme["denied"] == 3
     assert acme["total"] == FREE_LIMIT + 3
     assert acme["tier"] == "free"
-    assert acme["in_window_now"] == FREE_LIMIT
+    assert acme["in_use_now"] == FREE_LIMIT
 
 
 def test_metrics_cover_every_registered_client(api):

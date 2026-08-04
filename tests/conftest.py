@@ -12,7 +12,7 @@ import redis.asyncio as redis
 from fastapi.testclient import TestClient
 
 from app.config import REDIS_URL
-from app.limiter import RateLimiter
+from app.limiters import ALGORITHMS, build_limiter
 
 
 @pytest_asyncio.fixture
@@ -29,9 +29,24 @@ async def redis_client():
     await client.aclose()
 
 
+@pytest_asyncio.fixture(params=sorted(ALGORITHMS))
+async def limiter(request, redis_client):
+    """Every test using this fixture runs once per algorithm.
+
+    Anything asserted through it is part of the shared contract, not a quirk of
+    one implementation.
+    """
+    return build_limiter(request.param, redis_client)
+
+
 @pytest_asyncio.fixture
-async def limiter(redis_client):
-    return RateLimiter(redis_client)
+async def sliding_window(redis_client):
+    return build_limiter("sliding_window_log", redis_client)
+
+
+@pytest_asyncio.fixture
+async def token_bucket(redis_client):
+    return build_limiter("token_bucket", redis_client)
 
 
 @pytest.fixture

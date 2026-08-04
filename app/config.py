@@ -15,3 +15,8 @@ INSTANCE_ID = os.getenv("INSTANCE_ID", "local")
 
 # How long to wait on Redis before giving up on a call.
 REDIS_TIMEOUT_SECONDS = float(os.getenv("REDIS_TIMEOUT_SECONDS", "0.5"))
+
+# Which limiting algorithm to run: sliding_window_log or token_bucket.
+# Both enforce the same sustained rate; they differ in memory cost and in
+# whether they permit bursts. See the README.
+ALGORITHM = os.getenv("ALGORITHM", "sliding_window_log")

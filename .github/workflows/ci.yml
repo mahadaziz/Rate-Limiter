@@ -40,10 +40,19 @@ jobs:
         run: pytest
 
   # The part a unit test cannot cover: three instances, one Redis, a load
-  # balancer in front, and concurrent traffic through all of it.
+  # balancer in front, and concurrent traffic through all of it. Run once per
+  # algorithm, since holding the limit across instances is a claim both make.
   integration:
-    name: distributed stack
+    name: distributed stack (${{ matrix.algorithm }})
     runs-on: ubuntu-latest
+
+    strategy:
+      fail-fast: false
+      matrix:
+        algorithm: [sliding_window_log, token_bucket]
+
+    env:
+      ALGORITHM: ${{ matrix.algorithm }}
 
     steps:
       - uses: actions/checkout@v4
@@ -69,6 +78,9 @@ jobs:
 
       - name: Window slides rather than resetting
         run: docker compose exec -T app-1 python -m scripts.verify_sliding_window
+
+      - name: Bucket refills continuously and caps at capacity
+        run: docker compose exec -T app-1 python -m scripts.verify_token_bucket
 
       - name: Negative control, a non-atomic limiter overshoots
         run: docker compose exec -T app-1 python -m scripts.demo_race
