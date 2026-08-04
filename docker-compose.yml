@@ -1,5 +1,9 @@
 x-app: &app
-  build: .
+  build:
+    context: .
+    # Explicit: without a target, a multi-stage build produces the last stage,
+    # which here is the test image.
+    target: base
   depends_on:
     redis:
       condition: service_healthy
@@ -33,6 +37,21 @@ services:
     environment:
       REDIS_URL: redis://redis:6379/0
       INSTANCE_ID: app-3
+
+  # Not started by `docker compose up`; run it with
+  #   docker compose --profile test run --rm tests
+  # It flushes Redis, so do not point it at a stack you are load testing.
+  tests:
+    build:
+      context: .
+      target: test
+    profiles: ["test"]
+    environment:
+      REDIS_URL: redis://redis:6379/0
+      INSTANCE_ID: tests
+    depends_on:
+      redis:
+        condition: service_healthy
 
   # The only published port. Everything enters through the load balancer, so
   # traffic is spread across instances the way it would be in production.

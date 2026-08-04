@@ -165,9 +165,30 @@ Authentication and rate limiting fail in different directions, deliberately.
 Without it, a hung Redis would turn every request into a hang rather than a
 fast pass-through.
 
+## Tests
+
+```bash
+docker compose --profile test run --rm tests
+```
+
+26 tests covering the limiter decision and the HTTP surface. They run against a
+real Redis rather than a fake one: the behaviour under test is atomic execution
+of a Lua script and a server-side clock, and a Python reimplementation of those
+would let the suite pass while the thing it claims to prove was broken.
+
+The test container is a separate build stage, so the image that serves traffic
+does not ship pytest. It flushes Redis on each test, so do not run it against a
+stack you are load testing.
+
+The suite was checked against deliberate mutations to confirm it has teeth.
+Changing `count < limit` to `count <= limit` in the script fails 13 tests;
+removing the `ZREMRANGEBYSCORE` prune fails exactly one, the sliding window
+test, which is the only behaviour that mutation actually changes.
+
 ## Verifying it
 
-Four scripts, all run inside a container that already has the dependencies.
+Four scripts on top of the test suite, all run inside a container that already
+has the dependencies.
 
 ```bash
 # the limit holds exactly under concurrency, on one instance
@@ -226,6 +247,7 @@ app/
   metrics.py        reads the counters the script writes
   config.py         environment settings
   redis_client.py   one connection pool per process
+tests/              pytest suite, run against a real Redis
 scripts/            verification and load testing
 nginx/nginx.conf    round robin across the three instances
 ```
