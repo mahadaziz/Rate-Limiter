@@ -1,5 +1,7 @@
 # Distributed Rate Limiter
 
+[![CI](https://github.com/mahadaziz/Rate-Limiter/actions/workflows/ci.yml/badge.svg)](https://github.com/mahadaziz/Rate-Limiter/actions/workflows/ci.yml)
+
 A rate limiter that holds a single shared limit across several application
 instances, built with FastAPI and Redis.
 
@@ -179,6 +181,11 @@ would let the suite pass while the thing it claims to prove was broken.
 The test container is a separate build stage, so the image that serves traffic
 does not ship pytest. It flushes Redis on each test, so do not run it against a
 stack you are load testing.
+
+CI runs this suite on every push, plus a second job that brings up the full
+three-instance stack and runs the verification scripts against it. The parts
+that matter here are the ones a unit test cannot reach, so both jobs earn their
+place.
 
 The suite was checked against deliberate mutations to confirm it has teeth.
 Changing `count < limit` to `count <= limit` in the script fails 13 tests;

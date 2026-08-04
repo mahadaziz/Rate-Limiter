@@ -1,0 +1,85 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  # Fast feedback: the suite against a Redis service container.
+  tests:
+    name: pytest
+    runs-on: ubuntu-latest
+
+    services:
+      redis:
+        image: redis:7-alpine
+        ports:
+          - 6379:6379
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 2s
+          --health-timeout 2s
+          --health-retries 10
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run tests
+        env:
+          REDIS_URL: redis://localhost:6379/0
+        run: pytest
+
+  # The part a unit test cannot cover: three instances, one Redis, a load
+  # balancer in front, and concurrent traffic through all of it.
+  integration:
+    name: distributed stack
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Start the stack
+        run: docker compose up -d --build
+
+      - name: Wait for the load balancer
+        run: |
+          for i in $(seq 1 60); do
+            code=$(curl -s -m 2 -o /dev/null -w '%{http_code}' http://localhost:8080/health || true)
+            if [ "$code" = "200" ]; then
+              echo "ready after ${i} attempts"
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "stack did not become ready (last status: ${code})"
+          exit 1
+
+      - name: Limit holds exactly under concurrency
+        run: docker compose exec -T app-1 python -m scripts.verify_atomicity
+
+      - name: Window slides rather than resetting
+        run: docker compose exec -T app-1 python -m scripts.verify_sliding_window
+
+      - name: Negative control, a non-atomic limiter overshoots
+        run: docker compose exec -T app-1 python -m scripts.demo_race
+
+      - name: Concurrent load across all three instances
+        run: docker compose exec -T app-1 python -m scripts.loadtest
+
+      - name: Container logs
+        if: failure()
+        run: docker compose logs
+
+      - name: Tear down
+        if: always()
+        run: docker compose down -v
