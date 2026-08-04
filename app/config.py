@@ -11,3 +11,8 @@ INSTANCE_ID = os.getenv("INSTANCE_ID", "local")
 
 # How long to wait on Redis before giving up on a call.
 REDIS_TIMEOUT_SECONDS = float(os.getenv("REDIS_TIMEOUT_SECONDS", "0.5"))
+
+# Limit applied to callers that have not been identified yet. Step 3 replaces
+# this with per-client tiers.
+DEFAULT_LIMIT = int(os.getenv("DEFAULT_LIMIT", "10"))
+DEFAULT_WINDOW_MS = int(os.getenv("DEFAULT_WINDOW_MS", "60000"))
