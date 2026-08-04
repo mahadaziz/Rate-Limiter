@@ -45,5 +45,9 @@ def lookup(api_key: str) -> Client | None:
     return Client(client_id=client_id, tier=TIERS[tier_name])
 
 
-def all_client_ids() -> list[str]:
-    return [client_id for client_id, _ in _REGISTRY.values()]
+def registered_clients() -> list[Client]:
+    """Every known client. Used by /metrics to report on all of them."""
+    return [
+        Client(client_id=client_id, tier=TIERS[tier_name])
+        for client_id, tier_name in _REGISTRY.values()
+    ]

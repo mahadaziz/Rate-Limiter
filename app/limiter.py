@@ -18,6 +18,19 @@ _LUA_PATH = Path(__file__).parent / "lua" / "sliding_window_log.lua"
 _LUA_SOURCE = _LUA_PATH.read_text()
 
 KEY_PREFIX = "ratelimit"
+METRICS_PREFIX = "metrics"
+
+
+def window_key(client_id: str) -> str:
+    # The braces are a Redis Cluster hash tag: only what is inside them is
+    # hashed to a slot. That keeps a client's window and its counters on the
+    # same node, which a multi-key script requires. On a single Redis they are
+    # just part of the name and cost nothing.
+    return f"{KEY_PREFIX}:{{{client_id}}}"
+
+
+def metrics_key(client_id: str) -> str:
+    return f"{METRICS_PREFIX}:{{{client_id}}}"
 
 
 class RateLimitResult(NamedTuple):
@@ -62,7 +75,7 @@ class RateLimiter:
 
         try:
             allowed, remaining, retry_after_ms = await self._script(
-                keys=[f"{KEY_PREFIX}:{client_id}"],
+                keys=[window_key(client_id), metrics_key(client_id)],
                 args=[window_ms, limit, member],
             )
         except (RedisError, OSError) as exc:

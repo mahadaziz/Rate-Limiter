@@ -10,7 +10,11 @@
 -- whose score has aged out, which gives a true rolling window rather than the
 -- burst-at-the-boundary behaviour of fixed buckets.
 --
+-- The allowed/denied counters are bumped in here too, so a request cannot be
+-- counted differently from how it was decided.
+--
 -- KEYS[1] - the rate limit key for this client
+-- KEYS[2] - the metrics hash for this client
 -- ARGV[1] - window length in milliseconds
 -- ARGV[2] - maximum requests allowed within the window
 -- ARGV[3] - unique member id for this request
@@ -18,6 +22,7 @@
 -- Returns {allowed, remaining, retry_after_ms}
 
 local key = KEYS[1]
+local metrics_key = KEYS[2]
 local window_ms = tonumber(ARGV[1])
 local limit = tonumber(ARGV[2])
 local member = ARGV[3]
@@ -39,6 +44,7 @@ if count < limit then
     -- Refresh the TTL so idle clients clean themselves up instead of leaking
     -- a key each.
     redis.call('PEXPIRE', key, window_ms)
+    redis.call('HINCRBY', metrics_key, 'allowed', 1)
     return {1, limit - count - 1, 0}
 end
 
@@ -52,4 +58,5 @@ if oldest[2] then
     end
 end
 
+redis.call('HINCRBY', metrics_key, 'denied', 1)
 return {0, 0, retry_after_ms}

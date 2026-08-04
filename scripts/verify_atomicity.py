@@ -7,13 +7,13 @@ of them wrote, and the allowed count would come out above the limit.
 
 Run inside the app container:
 
-    docker compose exec app python -m scripts.verify_atomicity
+    docker compose exec app-1 python -m scripts.verify_atomicity
 """
 
 import asyncio
 import sys
 
-from app.limiter import KEY_PREFIX, RateLimiter
+from app.limiter import RateLimiter, window_key
 from app.redis_client import close_client, create_client
 
 CONCURRENCY = 200
@@ -24,7 +24,7 @@ ROUNDS = 5
 
 async def run_round(client, limiter: RateLimiter, round_no: int) -> bool:
     client_id = f"atomicity-test-{round_no}"
-    key = f"{KEY_PREFIX}:{client_id}"
+    key = window_key(client_id)
     await client.delete(key)
 
     results = await asyncio.gather(

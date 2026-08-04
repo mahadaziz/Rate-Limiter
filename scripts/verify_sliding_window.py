@@ -14,13 +14,13 @@ guarantees only a lower bound and a loaded host can overshoot it.
 
 Run inside the app container:
 
-    docker compose exec app python -m scripts.verify_sliding_window
+    docker compose exec app-1 python -m scripts.verify_sliding_window
 """
 
 import asyncio
 import sys
 
-from app.limiter import KEY_PREFIX, RateLimiter
+from app.limiter import RateLimiter, window_key
 from app.redis_client import close_client, create_client
 
 LIMIT = 6
@@ -37,7 +37,7 @@ async def main() -> int:
     client = create_client()
     limiter = RateLimiter(client)
     client_id = "sliding-window-test"
-    key = f"{KEY_PREFIX}:{client_id}"
+    key = window_key(client_id)
     await client.delete(key)
 
     async def send(n: int) -> int:

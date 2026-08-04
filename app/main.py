@@ -10,7 +10,9 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
+from redis.exceptions import RedisError
 
+from app import metrics
 from app.clients import Client, lookup
 from app.config import INSTANCE_ID
 from app.limiter import RateLimiter
@@ -69,6 +71,49 @@ async def health() -> dict:
         status = "degraded"
 
     return {"status": status, "redis": redis_state, "instance": INSTANCE_ID}
+
+
+@app.get("/metrics")
+async def get_metrics(request: Request):
+    """Per-client allowed/denied counts.
+
+    The counts are shared across instances because they are kept in Redis, so
+    this reports the whole cluster's view no matter which instance answers.
+    The fallback count is the exception: it is per instance, since it counts
+    the times this process could not reach Redis to record anything.
+    """
+    limiter: RateLimiter = request.app.state.limiter
+
+    try:
+        clients = await metrics.collect(get_client())
+    except (RedisError, OSError) as exc:
+        logger.error("metrics unavailable, redis unreachable: %s", exc)
+        return JSONResponse(
+            status_code=503,
+            content={
+                "detail": "metrics unavailable, redis unreachable",
+                "instance": INSTANCE_ID,
+                "fallbacks_this_instance": limiter.fallback_count,
+            },
+        )
+
+    return {
+        "instance": INSTANCE_ID,
+        "fallbacks_this_instance": limiter.fallback_count,
+        "clients": clients,
+    }
+
+
+@app.post("/metrics/reset")
+async def reset_metrics(request: Request):
+    """Zero the counters. Convenience for repeated load test runs."""
+    try:
+        await metrics.reset(get_client())
+    except (RedisError, OSError) as exc:
+        logger.error("metrics reset failed, redis unreachable: %s", exc)
+        raise HTTPException(status_code=503, detail="redis unreachable") from exc
+
+    return {"detail": "metrics reset"}
 
 
 @app.get("/limited")
