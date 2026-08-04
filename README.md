@@ -270,3 +270,7 @@ nginx/nginx.conf    round robin across the three instances
 - The sorted set holds one entry per request per window, so a very high limit
   costs real memory. Above some threshold an approximate algorithm such as a
   sliding window counter would be the better trade.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
