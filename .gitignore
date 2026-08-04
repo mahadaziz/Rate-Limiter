@@ -5,3 +5,4 @@ venv/
 .env
 .pytest_cache/
 .claude/settings.local.json
+CLAUDE.md
