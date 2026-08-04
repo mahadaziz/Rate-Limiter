@@ -4,6 +4,5 @@ __pycache__/
 venv/
 .git/
 .gitignore
-loadtest/
 README.md
 CLAUDE.md
