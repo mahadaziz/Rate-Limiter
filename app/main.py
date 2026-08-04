@@ -1,16 +1,18 @@
 """FastAPI application entrypoint.
 
 Routes only: they identify the caller, ask the limiter for a decision, and
-turn that decision into HTTP. The decision itself lives in `app.limiter`.
+turn that decision into HTTP. The decision itself lives in `app.limiter`, and
+who gets what limit lives in `app.clients`.
 """
 
 import logging
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI, Request
+from fastapi import Depends, FastAPI, Header, HTTPException, Request
 from fastapi.responses import JSONResponse
 
-from app.config import DEFAULT_LIMIT, DEFAULT_WINDOW_MS, INSTANCE_ID
+from app.clients import Client, lookup
+from app.config import INSTANCE_ID
 from app.limiter import RateLimiter
 from app.redis_client import close_client, create_client, get_client
 
@@ -33,6 +35,23 @@ async def lifespan(app: FastAPI):
 app = FastAPI(title="Distributed Rate Limiter", lifespan=lifespan)
 
 
+async def require_client(x_api_key: str | None = Header(default=None)) -> Client:
+    """Resolve the caller from their API key, or reject the request.
+
+    Unregistered keys are turned away rather than given a default limit; if
+    anonymous callers were allowed through, dropping the header would be a way
+    to sidestep whatever tier the key carries.
+    """
+    if x_api_key is None:
+        raise HTTPException(status_code=401, detail="missing X-API-Key header")
+
+    client = lookup(x_api_key)
+    if client is None:
+        raise HTTPException(status_code=401, detail="unknown API key")
+
+    return client
+
+
 @app.get("/health")
 async def health() -> dict:
     """Report whether this instance can reach Redis.
@@ -53,21 +72,18 @@ async def health() -> dict:
 
 
 @app.get("/limited")
-async def limited(request: Request):
-    """A rate limited endpoint.
-
-    Callers are identified by the `X-Client-Id` header for now; step 3 replaces
-    that with API keys and tiers.
-    """
-    client_id = request.headers.get("X-Client-Id", "anonymous")
+async def limited(request: Request, client: Client = Depends(require_client)):
+    """A rate limited endpoint, at whatever limit the caller's tier carries."""
+    tier = client.tier
 
     result = await request.app.state.limiter.check(
-        client_id, DEFAULT_LIMIT, DEFAULT_WINDOW_MS
+        client.client_id, tier.limit, tier.window_ms
     )
 
     headers = {
         "X-RateLimit-Limit": str(result.limit),
         "X-RateLimit-Remaining": str(result.remaining),
+        "X-RateLimit-Tier": tier.name,
         "X-Instance": INSTANCE_ID,
     }
 
@@ -80,7 +96,8 @@ async def limited(request: Request):
             status_code=429,
             content={
                 "detail": "rate limit exceeded",
-                "client_id": client_id,
+                "client_id": client.client_id,
+                "tier": tier.name,
                 "retry_after_ms": result.retry_after_ms,
             },
             headers=headers,
@@ -89,7 +106,8 @@ async def limited(request: Request):
     return JSONResponse(
         content={
             "detail": "ok",
-            "client_id": client_id,
+            "client_id": client.client_id,
+            "tier": tier.name,
             "remaining": result.remaining,
             "instance": INSTANCE_ID,
         },
