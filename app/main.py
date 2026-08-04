@@ -87,6 +87,11 @@ async def limited(request: Request, client: Client = Depends(require_client)):
         "X-Instance": INSTANCE_ID,
     }
 
+    if result.degraded:
+        # Say so on the response rather than only in the logs, so a caller can
+        # tell that the limit was not actually enforced for this request.
+        headers["X-RateLimit-Degraded"] = "true"
+
     if not result.allowed:
         # Round up, so a caller that waits exactly this long is past the edge
         # of the window rather than sitting on it.
